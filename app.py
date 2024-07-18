@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+import requests
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -9,16 +10,28 @@ def home():
 
 @app.route('/login', methods=['POST'])
 def login():
-    username = request.form['username']
-    password = request.form['password']
     
-    # Dummy check for example purposes
-    if username == 'admin' and password == 'password':
+    if request.content_type != 'application/json':
+        return jsonify({'error': 'Unsupported Media Type. Expected application/json'}), 415
+
+    data = request.get_json()
+    """username=request.form("username")
+    username=request.form("password")"""
+    
+    username = data.get("username")
+    password = data.get("password")
+    
+    
+    global_api_url = 'https://example.com/api/login'
+    api_response = requests.post(global_api_url, json=data)
+    
+    
+    if username == 'admin' and password == 'p':
         session['username'] = username
-        return redirect(url_for('success'))
+        return jsonify({'redirect': url_for('success')})
     else:
         flash('Login Failed. Please check your username and password.')
-        return redirect(url_for('home'))
+        return jsonify({'redirect': url_for('home')})
 
 @app.route('/success')
 def success():
