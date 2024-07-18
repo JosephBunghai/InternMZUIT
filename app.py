@@ -1,8 +1,5 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
-import os
-import logging
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -11,24 +8,13 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(message)s')
-
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(150), nullable=False)
 
-# Flag to ensure tables are created only once
-tables_created = False
-
-@app.before_request
-def create_tables():
-    global tables_created
-    if not tables_created:
-        db.create_all()
-        tables_created = True
-        logging.debug("Database tables created.")
+with app.app_context():
+    db.create_all()
 
 @app.route('/')
 def home():
@@ -37,60 +23,46 @@ def home():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
-        if request.content_type != 'application/json':
-            return jsonify({'error': 'Unsupported Media Type. Expected application/json'}), 415
-
-        data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
+        username = request.form['username']
+        password = request.form['password']
 
         if not username or not password:
-            logging.error("Username or password missing in request.")
-            return jsonify({'error': 'Username and password are required.'}), 400
+            flash('Username and password are required.', 'error')
+            return redirect(url_for('register'))
 
-        hashed_password = generate_password_hash(password, method='sha256')
-        new_user = User(username=username, password=hashed_password)
+        new_user = User(username=username, password=password)
 
         try:
             db.session.add(new_user)
             db.session.commit()
-            logging.debug(f"User registered: {username}")
-            return jsonify({'message': 'Registration successful! You can now log in.', 'redirect': url_for('home')})
+            flash('Registration successful! You can now log in.', 'success')
+            return redirect(url_for('login'))
         except Exception as e:
-            logging.error(f"Error during registration: {e}")
-            db.session.rollback()  # Rollback the session in case of error
-            return jsonify({'error': 'Registration failed. Username might already be taken.'}), 400
+            flash('Registration failed. Username might already be taken.', 'error')
+            return redirect(url_for('register'))
+
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        if request.content_type != 'application/json':
-            return jsonify({'error': 'Unsupported Media Type. Expected application/json'}), 415
+        username = request.form.get('username')
+        password = request.form.get('password')
 
-        data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-        
         if not username or not password:
-            logging.error("Username or password missing in request.")
-            return jsonify({'error': 'Username and password are required.'}), 400
+            flash('Username and password are required.', 'error')
+            return redirect(url_for('login'))
 
         user = User.query.filter_by(username=username).first()
 
-        if user:
-            logging.debug(f"User found: {user.username}")
-            logging.debug(f"Stored hash: {user.password}")
-            if check_password_hash(user.password, password):
-                session['username'] = user.username
-                logging.debug(f"Login successful for user: {user.username}")
-                return jsonify({'redirect': url_for('success')})
-            else:
-                logging.debug("Password does not match.")
-                return jsonify({'error': 'Login Failed. Please check your username and password.'}), 400
+        if user and user.password == password:
+            session['username'] = user.username
+            flash('Login successful!', 'success')
+            return redirect(url_for('success'))
         else:
-            logging.debug("User not found.")
-            return jsonify({'error': 'Login Failed. Please check your username and password.'}), 400
+            flash('Login failed. Please check your username and password.', 'error')
+            return redirect(url_for('login'))
+
     return render_template('login.html')
 
 @app.route('/success')
@@ -98,13 +70,20 @@ def success():
     if 'username' in session:
         return render_template('success.html', username=session['username'])
     else:
-        return redirect(url_for('home'))
+        flash('Please log in first.', 'error')
+        return redirect(url_for('login'))
 
-@app.route('/logout')
+@app.route('/logout', methods=['GET', 'POST'])
 def logout():
     session.pop('username', None)
-    flash('You have been logged out successfully.')
-    return redirect(url_for('home'))
+    flash('You have been logged out successfully.', 'success')
+    return redirect(url_for('login'))
+
+# Route to display all users and their passwords
+@app.route('/users')
+def show_users():
+    users = User.query.all()
+    return render_template('users.html', users=users)
 
 if __name__ == '__main__':
     app.run(debug=True)
